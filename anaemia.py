@@ -42,13 +42,24 @@ EPOCHS = 500
 
 
 def load(path="raw.json"):
-    """Country -> {year: (value, ci_low, ci_high)}, countries only."""
+    """Country -> {year: (value, ci_low, ci_high)}, countries only.
+
+    The API returns a second dimension the obvious loader misses: every
+    (country, year) appears three times, once per PREGNANCYSTATUS. Without the
+    filter below each series silently mixes pregnant, non-pregnant and total
+    women, and since the rows are unsorted, which one survives is arbitrary.
+    """
     rows = [r for r in json.load(open(path))["value"]
-            if r["SpatialDimType"] == "COUNTRY" and r["NumericValue"] is not None]
+            if r["SpatialDimType"] == "COUNTRY" and r["NumericValue"] is not None
+            and r["Dim2"] == "PREGNANCYSTATUS_TOTAL"]
     out = {}
     for r in rows:
         out.setdefault(r["SpatialDim"], {})[r["TimeDim"]] = (
             r["NumericValue"], r["Low"], r["High"])
+
+    # One row per cell, or a dimension is colliding again.
+    kept = sum(len(s) for s in out.values())
+    assert kept == len(rows), f"{len(rows)} rows collapsed into {kept} cells"
     return out
 
 
@@ -159,10 +170,11 @@ if __name__ == "__main__":
     print(f"  {'PyTorch linear trend':28s} {inside['trend'] / t * 100:5.1f}%")
     print(f"  {'naive last-value-carried':28s} {inside['naive'] / t * 100:5.1f}%")
 
-    ratio = statistics.median(ci) / statistics.median(trend_err)
-    print(f"\nThe uncertainty band is {ratio:.0f}x wider than the forecast error, and")
-    print("both models sit inside it almost every time. A difference of 0.25 pp")
-    print("between them is not something this data can adjudicate.")
+    ratio = statistics.median(ci) / statistics.median(naive_err)
+    worse = statistics.median(trend_err) / statistics.median(naive_err)
+    print(f"\nCarrying the last value forward is {worse:.1f}x more accurate than the")
+    print(f"fitted trend, and sits inside WHO's own interval {inside['naive']/t*100:.1f}% of the time.")
+    print(f"That interval is {ratio:.0f}x wider than the naive error itself.")
 
     changes = [abs(s[2023][0] - s[2000][0]) for s in data.values()
                if 2000 in s and 2023 in s]

@@ -1,20 +1,23 @@
 # Anaemia in Women — forecasting a number smaller than its own error bar 🩸
 
-**WHO's uncertainty band on these estimates is 26.7 points wide. The total change
-being forecast is 4.8 points across 23 years.** The quantity is smaller than the
+**WHO's uncertainty band on these estimates is 27.7 points wide. The total change
+being forecast is 3.9 points across 23 years.** The quantity is smaller than the
 error bars around it, and no model fixes that.
 
 | | Median error | Mean error | Lands inside WHO's own interval |
 |---|---|---|---|
-| PyTorch linear trend | 2.45 pp | 3.52 pp | 95.0% of forecasts |
-| naive "assume nothing changed" | **2.20 pp** | **3.02 pp** | 96.8% of forecasts |
-| **WHO's published uncertainty on the same estimates** | **26.70 pp** | 26.99 pp | — |
+| PyTorch linear trend | 2.34 pp | 2.95 pp | 96.8% of forecasts |
+| naive "assume nothing changed" | **0.90 pp** | **1.31 pp** | 99.8% of forecasts |
+| **WHO's published uncertainty on the same estimates** | **27.70 pp** | 27.59 pp | — |
 
-The trained model does not beat carrying the last value forward. Both land
-**11× inside** the noise of the numbers they are predicting, and both sit inside
-WHO's published interval about 19 times out of 20 — which is what "this data
-cannot tell these models apart" looks like when you measure it instead of
-asserting it.
+Carrying the last value forward is **2.6× more accurate** than the trained
+model, and lands inside WHO's own published interval 99.8% of the time — against
+an interval **31× wider** than its own error.
+
+> **Correction (4 Aug 2026).** An earlier version of this README reported 2.45 pp
+> vs 2.20 pp and concluded the two models were indistinguishable. That was wrong,
+> and the cause was a loader bug described below. The corrected result is
+> stronger, not weaker: the trend model is decisively worse, not tied.
 
 ## The problem
 
@@ -58,18 +61,49 @@ An underfit line disagrees by whole units. This check is the one the earlier
 version failed silently, and it now runs on every execution — the reader verifies
 convergence rather than taking my word for it.
 
-The corrected result is identical to the one reported before the fix (2.45 pp), so
-the finding stands; what changed is that it is now provably converged rather than
-plausibly converged.
+Fixing convergence did not move the trend error at all — the number that finally
+moved everything was the loader bug below, found later by an automated audit.
+Two separate bugs, both found after publishing, both documented here rather than
+quietly patched.
+
+## The second bug: a dimension I never looked at
+
+The WHO endpoint returns a second dimension the obvious loader misses.
+**Every `(country, year)` appears three times** — once for `PREGNANT`, once for
+`NONPREGNANT`, once for `TOTAL`:
+
+```
+IND 2015  PREGNANCYSTATUS_PREGNANT      48.5
+IND 2015  PREGNANCYSTATUS_NONPREGNANT   50.9
+IND 2015  PREGNANCYSTATUS_TOTAL         50.8
+```
+
+My loader wrote all three into the same slot, so the last one won. The rows
+aren't sorted, so which population survived each year was arbitrary. Every
+country's "time series" was a mix of three different populations — and re-running
+the download could have produced different headline numbers.
+
+13,968 rows were collapsing into 4,656 cells without a word of complaint. The fix
+is one filter plus an assertion so the failure can't recur silently:
+
+```python
+and r["Dim2"] == "PREGNANCYSTATUS_TOTAL"
+...
+assert kept == len(rows), f"{len(rows)} rows collapsed into {kept} cells"
+```
+
+This barely moved the trend model — line-fitting averages the jitter away — but
+it inflated the naive baseline by 2.4×, because carrying 2015 forward fails badly
+when 2016 is drawn from a different population. That manufactured the near-tie
+the original write-up was built on.
 
 ## What the comparison shows
 
-- The trained model **loses to doing nothing** (2.45 vs 2.20 pp). When a series
-  barely moves, "assume no change" is a genuinely strong baseline.
-- **95.0% and 96.8% of forecasts land inside WHO's published interval.** Both
-  models are, by the source's own accounting, indistinguishable from correct —
-  which means they are also indistinguishable from each other. Reporting that one
-  is 0.25 pp better is reporting noise with a decimal point.
+- The trained model **loses to doing nothing, decisively** (2.34 vs 0.90 pp).
+  When a series barely moves, "assume no change" is very hard to beat.
+- **99.8% of naive forecasts land inside WHO's published interval**, against an
+  interval 31× wider than the naive error. By the source's own accounting, doing
+  nothing is indistinguishable from correct.
 - **These are modelled estimates, not measurements.** All 194 countries have a
   value for all 24 years — including countries that ran no national survey in most
   of them. The wide intervals are WHO being honest about that. Training on this
