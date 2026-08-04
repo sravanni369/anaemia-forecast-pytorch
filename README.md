@@ -4,14 +4,17 @@
 being forecast is 4.8 points across 23 years.** The quantity is smaller than the
 error bars around it, and no model fixes that.
 
-| | Median error | Mean error |
-|---|---|---|
-| PyTorch linear trend | 2.45 pp | 3.52 pp |
-| naive "assume nothing changed" | **2.20 pp** | **3.02 pp** |
-| **WHO's published uncertainty on the same estimates** | **26.70 pp** | 26.99 pp |
+| | Median error | Mean error | Lands inside WHO's own interval |
+|---|---|---|---|
+| PyTorch linear trend | 2.45 pp | 3.52 pp | 95.0% of forecasts |
+| naive "assume nothing changed" | **2.20 pp** | **3.02 pp** | 96.8% of forecasts |
+| **WHO's published uncertainty on the same estimates** | **26.70 pp** | 26.99 pp | — |
 
 The trained model does not beat carrying the last value forward. Both land
-**11× inside** the noise of the numbers they are predicting.
+**11× inside** the noise of the numbers they are predicting, and both sit inside
+WHO's published interval about 19 times out of 20 — which is what "this data
+cannot tell these models apart" looks like when you measure it instead of
+asserting it.
 
 ## The problem
 
@@ -25,27 +28,48 @@ repo does that, then does the part the standard exercise skips — **it compares
 forecast error against the uncertainty WHO publishes alongside every single
 estimate.**
 
-## The bug I shipped into my own first result
+## The bug I shipped into my own first result — and the fix
 
-My first run reported the trend model at **14.83 pp error** — six times worse than
+My first run reported the trend model at **14.83 pp error**, six times worse than
 the naive baseline. It looked like a clean finding: "trend extrapolation fails on
 health data."
 
-It was my bug. At 300 epochs the fit had not converged — training loss 293 versus
-0.42 at 2000 epochs. An underfit line looks exactly like a failed method. After
-fixing the epoch count the error dropped to 2.45 pp and the real result appeared:
-the trend model is *fine*, it just has nothing to beat.
+It was my bug. Prevalence values sit around 30–60, so a zero-initialised bias needs
+hundreds of steps just to reach the data; at 300 epochs the fit had not converged
+(training loss 293 versus 0.42). **An underfit line is indistinguishable from a
+failed method.**
 
-The script now prints median training loss on every run so the reader can check
-convergence rather than trust me. A finding that disappears when you train
-properly was never a finding.
+Raising the epoch count made the number correct but the code no problem-free — it
+still depended on a hardcoded guess being large enough for every country. Two
+structural fixes replaced it:
+
+1. **Standardise both axes before fitting**, then rescale the coefficients back.
+   Convergence no longer depends on the units of the series, and 500 epochs now
+   does what 2000 did before.
+2. **Check the answer instead of trusting the loop.** Every gradient-descent fit is
+   compared against the closed-form least-squares solution for the same series.
+   The script prints the worst disagreement across all 194 fits:
+
+```
+worst coefficient gap across 194 country fits: 4.43e-06
+```
+
+An underfit line disagrees by whole units. This check is the one the earlier
+version failed silently, and it now runs on every execution — the reader verifies
+convergence rather than taking my word for it.
+
+The corrected result is identical to the one reported before the fix (2.45 pp), so
+the finding stands; what changed is that it is now provably converged rather than
+plausibly converged.
 
 ## What the comparison shows
 
 - The trained model **loses to doing nothing** (2.45 vs 2.20 pp). When a series
   barely moves, "assume no change" is a genuinely strong baseline.
-- Both errors sit far inside WHO's own ±13-point uncertainty. Reporting that one
-  model is 0.25 pp better than another is reporting noise with a decimal point.
+- **95.0% and 96.8% of forecasts land inside WHO's published interval.** Both
+  models are, by the source's own accounting, indistinguishable from correct —
+  which means they are also indistinguishable from each other. Reporting that one
+  is 0.25 pp better is reporting noise with a decimal point.
 - **These are modelled estimates, not measurements.** All 194 countries have a
   value for all 24 years — including countries that ran no national survey in most
   of them. The wide intervals are WHO being honest about that. Training on this

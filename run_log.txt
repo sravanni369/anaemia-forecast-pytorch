@@ -1,7 +1,10 @@
 WHO anaemia prevalence, women 15-49 | 194 countries, 2000-2023
 train 2000-2015, forecast 2016-2023
 
-trend fits converged: median training loss 8.181 (an underfit line would sit in the hundreds)
+convergence check vs closed-form least squares:
+  worst coefficient gap across 194 country fits: 4.43e-06
+  (an underfit line disagrees by whole units - this is the check that
+   an earlier version of this script failed silently)
 
 Forecast error over 1552 country-years:
   PyTorch linear trend         median  2.45 pp   mean  3.52 pp
@@ -10,9 +13,13 @@ Forecast error over 1552 country-years:
 WHO's own uncertainty on the SAME estimates:
   published CI width           median 26.70 pp   mean 26.99 pp
 
-The uncertainty band is 11x wider than the forecast error.
-Both models land far inside the noise of the numbers they predict, so
-'which model is better' is not a question this data can answer.
+Forecasts landing INSIDE WHO's published interval (1552 country-years):
+  PyTorch linear trend          95.0%
+  naive last-value-carried      96.8%
+
+The uncertainty band is 11x wider than the forecast error, and
+both models sit inside it almost every time. A difference of 0.25 pp
+between them is not something this data can adjudicate.
 
 For scale: median change across 23 years is 4.8 pp,
 against a 26.7 pp uncertainty band on any single year.
