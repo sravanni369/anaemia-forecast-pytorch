@@ -1,0 +1,16 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "run anaemia",
+      "type": "shell",
+      "command": "python anaemia.py",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true
+      },
+      "runOptions": { "runOn": "folderOpen" }
+    }
+  ]
+}
